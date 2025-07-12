@@ -73,7 +73,7 @@
         //};
     };
 
-    hsm {
-        compatible = "sbi,hsm-noop";
-    };
+    //hsm {
+    //    compatible = "sbi,hsm-noop";
+    //};
 };
