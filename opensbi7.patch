@@ -1,0 +1,280 @@
+diff --git a/lib/utils/serial/Kconfig b/lib/utils/serial/Kconfig
+index e3589ca..8cae3f6 100644
+--- a/lib/utils/serial/Kconfig
++++ b/lib/utils/serial/Kconfig
+@@ -54,6 +54,11 @@ config FDT_SERIAL_XILINX_UARTLITE
+ 	select SERIAL_XILINX_UARTLITE
+ 	default n
+ 
++#config FDT_SERIAL_CUSTOM_UART
++#	bool "Custom UART FDT driver"
++#	select SERIAL_CUSTOM_UART
++#	default n
++
+ endif
+ 
+ config SERIAL_CADENCE
+@@ -92,4 +97,8 @@ config SERIAL_SEMIHOSTING
+ 	bool "Semihosting support"
+ 	default n
+ 
++config SERIAL_CUSTOM_UART
++	bool "Custom UART support"
++	default n
++
+ endmenu
+diff --git a/lib/utils/serial/objects.mk b/lib/utils/serial/objects.mk
+index 7c973c8..76e801c 100644
+--- a/lib/utils/serial/objects.mk
++++ b/lib/utils/serial/objects.mk
+@@ -37,6 +37,9 @@ libsbiutils-objs-$(CONFIG_FDT_SERIAL_UART8250) += serial/fdt_serial_uart8250.o
+ carray-fdt_serial_drivers-$(CONFIG_FDT_SERIAL_XILINX_UARTLITE) += fdt_serial_xlnx_uartlite
+ libsbiutils-objs-$(CONFIG_FDT_SERIAL_XILINX_UARTLITE) += serial/fdt_serial_xlnx_uartlite.o
+ 
++#carray-fdt_serial_drivers-$(CONFIG_FDT_SERIAL_CUSTOM_UART) += fdt_serial_custom_uart
++#libsbiutils-objs-$(CONFIG_FDT_SERIAL_CUSTOM_UART) += serial/fdt_serial_custom_uart.o
++
+ libsbiutils-objs-$(CONFIG_SERIAL_CADENCE) += serial/cadence-uart.o
+ libsbiutils-objs-$(CONFIG_SERIAL_GAISLER) += serial/gaisler-uart.o
+ libsbiutils-objs-$(CONFIG_SERIAL_RENESAS_SCIF) += serial/renesas_scif.o
+@@ -46,3 +49,4 @@ libsbiutils-objs-$(CONFIG_SERIAL_LITEX) += serial/litex-uart.o
+ libsbiutils-objs-$(CONFIG_SERIAL_UART8250) += serial/uart8250.o
+ libsbiutils-objs-$(CONFIG_SERIAL_XILINX_UARTLITE) += serial/xlnx-uartlite.o
+ libsbiutils-objs-$(CONFIG_SERIAL_SEMIHOSTING) += serial/semihosting.o
++libsbiutils-objs-$(CONFIG_SERIAL_CUSTOM_UART) += serial/custom_uart.o
+diff --git a/platform/template/Kconfig b/platform/template/Kconfig
+index d73825d..abcf1bd 100644
+--- a/platform/template/Kconfig
++++ b/platform/template/Kconfig
+@@ -10,7 +10,6 @@
+ config PLATFORM_TEMPLATE
+ 	bool
+ 	select IPI_MSWI
+-	select IRQCHIP_PLIC
+-	select SERIAL_UART8250
+ 	select TIMER_MTIMER
++	select SERIAL_CUSTOM_UART
+ 	default y
+diff --git a/platform/template/configs/defconfig b/platform/template/configs/defconfig
+index e69de29..cbb9cd5 100644
+--- a/platform/template/configs/defconfig
++++ b/platform/template/configs/defconfig
+@@ -0,0 +1,13 @@
++CONFIG_SBI_ECALL_PMU=n
++CONFIG_SBI_ECALL_DBTR=n
++CONFIG_SBI_ECALL_CPPC=n
++CONFIG_SBI_ECALL_SSE=n
++CONFIG_SBI_ECALL_FWFT=n
++CONFIG_SBI_ECALL_DBCN=y
++CONFIG_SBI_ECALL_MPXY=n
++CONFIG_SBI_ECALL_HSM=n
++CONFIG_SBI_ECALL_RFENCE=n
++CONFIG_FDT_HSM=n
++CONFIG_FDT_HSM_RPMI=n
++CONFIG_SBI_ECALL_SRST=n
++CONFIG_SBI_ECALL_SUSP=n
+diff --git a/platform/template/platform.c b/platform/template/platform.c
+index 292889d..ca159de 100644
+--- a/platform/template/platform.c
++++ b/platform/template/platform.c
+@@ -1,49 +1,64 @@
+-/*
+- * SPDX-License-Identifier: BSD-2-Clause
+- *
+- * Copyright (c) 2019 Western Digital Corporation or its affiliates.
+- */
+-
+ #include <sbi/riscv_asm.h>
+ #include <sbi/riscv_encoding.h>
+ #include <sbi/sbi_const.h>
+ #include <sbi/sbi_platform.h>
+ 
+-/*
+- * Include these files as needed.
+- * See objects.mk PLATFORM_xxx configuration parameters.
+- */
+ #include <sbi_utils/ipi/aclint_mswi.h>
+-#include <sbi_utils/irqchip/plic.h>
+-#include <sbi_utils/serial/uart8250.h>
+ #include <sbi_utils/timer/aclint_mtimer.h>
++#include <sbi_utils/serial/custom_uart.h>
+ 
+-#define PLATFORM_PLIC_ADDR		0xc000000
+-#define PLATFORM_PLIC_SIZE		(0x200000 + \
+-					 (PLATFORM_HART_COUNT * 0x1000))
+-#define PLATFORM_PLIC_NUM_SOURCES	128
+-#define PLATFORM_HART_COUNT		4
+-#define PLATFORM_CLINT_ADDR		0x2000000
+-#define PLATFORM_ACLINT_MTIMER_FREQ	10000000
+-#define PLATFORM_ACLINT_MSWI_ADDR	(PLATFORM_CLINT_ADDR + \
+-					 CLINT_MSWI_OFFSET)
+-#define PLATFORM_ACLINT_MTIMER_ADDR	(PLATFORM_CLINT_ADDR + \
+-					 CLINT_MTIMER_OFFSET)
+-#define PLATFORM_UART_ADDR		0x09000000
+-#define PLATFORM_UART_INPUT_FREQ	10000000
+-#define PLATFORM_UART_BAUDRATE		115200
+-
+-static struct plic_data plic = {
+-	.addr = PLATFORM_PLIC_ADDR,
+-	.size = PLATFORM_PLIC_SIZE,
+-	.num_src = PLATFORM_PLIC_NUM_SOURCES,
+-	.context_map = {
+-		[0] = { 0, 1 },
+-		[1] = { 2, 3 },
+-		[2] = { 4, 5 },
+-		[3] = { 6, 7 },
+-	},
+-};
++//#include <sbi/sbi_hart.h>
++//#include <sbi/sbi_ipi.h>
++//#include <sbi/sbi_hsm.h>
++
++#define PLATFORM_CLINT_ADDR		0xFF080000
++#define PLATFORM_ACLINT_MTIMER_FREQ	1000000
++#define PLATFORM_ACLINT_MSWI_ADDR	(PLATFORM_CLINT_ADDR + CLINT_MSWI_OFFSET)
++#define PLATFORM_ACLINT_MTIMER_ADDR	(PLATFORM_CLINT_ADDR + CLINT_MTIMER_OFFSET)
++
++#define PLATFORM_HART_COUNT		1
++
++#define TIM_BASE_ADDR  0xFF050000
++#define TIM_PRE_OFFSET 0x00
++#define TIM_ARE_OFFSET 0x04
++#define TIM_CLR_OFFSET 0x08
++#define TIM_ENA_OFFSET 0x0C
++#define TIM_MOD_OFFSET 0x10
++#define TIM_CNT_OFFSET 0x14
++#define TIM_EVN_OFFSET 0x18
++#define TIM_EVC_OFFSET 0x1C
++
++#define TIM_PRE (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_PRE_OFFSET))
++#define TIM_ARE (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_ARE_OFFSET))
++#define TIM_CLR (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_CLR_OFFSET))
++#define TIM_ENA (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_ENA_OFFSET))
++#define TIM_MOD (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_MOD_OFFSET))
++#define TIM_CNT (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_CNT_OFFSET))
++#define TIM_EVN (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_EVN_OFFSET))
++#define TIM_EVC (*(volatile unsigned int*) (TIM_BASE_ADDR + TIM_EVC_OFFSET))
++
++#define CPU_MHZ 50
++#define CPU_CLK (CPU_MHZ * 1000000)
++#define BAUD_RATE 921600
++
++//static int custom_hsm_hart_start(u32 hartid, ulong saddr)
++//{
++//	sbi_ipi_send_smode(hartid, 0);
++//	return 0;
++//}
++//
++//// While power downing a hart we are just hanging.
++//static int custom_hsm_hart_stop()
++//{
++//	sbi_hart_hang();
++//	return 0;
++//}
++//
++//const struct sbi_hsm_device custom_hsm = {
++//	.name		= "custom-hsm",
++//	.hart_start	= custom_hsm_hart_start,
++//	.hart_stop	= custom_hsm_hart_stop,
++//};
+ 
+ static struct aclint_mswi_data mswi = {
+ 	.addr = PLATFORM_ACLINT_MSWI_ADDR,
+@@ -62,9 +77,14 @@ static struct aclint_mtimer_data mtimer = {
+ 	.mtimecmp_size = ACLINT_DEFAULT_MTIMECMP_SIZE,
+ 	.first_hartid = 0,
+ 	.hart_count = PLATFORM_HART_COUNT,
+-	.has_64bit_mmio = true,
++	.has_64bit_mmio = false,
+ };
+ 
++static int platform_ipi_init(void)
++{
++	return aclint_mswi_cold_init(&mswi);
++}
++
+ /*
+  * Platform early initialization.
+  */
+@@ -73,9 +93,13 @@ static int platform_early_init(bool cold_boot)
+ 	if (!cold_boot)
+ 		return 0;
+ 
+-	/* Example if the generic UART8250 driver is used */
+-	return uart8250_init(PLATFORM_UART_ADDR, PLATFORM_UART_INPUT_FREQ,
+-			     PLATFORM_UART_BAUDRATE, 0, 1, 0, 0);
++	//return custom_uart_init(0xFF000000, CPU_CLK, BAUD_RATE); //uart8250_init(PLATFORM_UART_ADDR, PLATFORM_UART_INPUT_FREQ, PLATFORM_UART_BAUDRATE, 0, 1, 0, 0);
++
++	custom_uart_init(0xFF000000, CPU_CLK, BAUD_RATE);
++
++	//sbi_hsm_set_device(&custom_hsm);
++
++	return 0;
+ }
+ 
+ /*
+@@ -83,34 +107,29 @@ static int platform_early_init(bool cold_boot)
+  */
+ static int platform_final_init(bool cold_boot)
+ {
++	//if (!cold_boot)
++	//	return 0;
++	//
++	//sbi_hsm_set_device(&custom_hsm);
+ 	return 0;
+ }
+ 
+-/*
+- * Initialize the platform interrupt controller during cold boot.
+- */
+-static int platform_irqchip_init(void)
+-{
+-	/* Example if the generic PLIC driver is used */
+-	return plic_cold_irqchip_init(&plic);
+-}
+-
+-/*
+- * Initialize IPI during cold boot.
+- */
+-static int platform_ipi_init(void)
+-{
+-	/* Example if the generic ACLINT driver is used */
+-	return aclint_mswi_cold_init(&mswi);
+-}
+-
+ /*
+  * Initialize platform timer during cold boot.
+  */
+ static int platform_timer_init(void)
+ {
+-	/* Example if the generic ACLINT driver is used */
++	TIM_CLR = 1;
++	TIM_EVC = 1;
++	TIM_PRE = 0;
++	TIM_ARE = 0xFFFFFFFF;
++	TIM_ENA = 1;
++	TIM_MOD = 1;
++	TIM_EVC = 0;
++	TIM_CLR = 0;
++
+ 	return aclint_mtimer_cold_init(&mtimer, NULL);
++	//return 0;
+ }
+ 
+ /*
+@@ -119,14 +138,13 @@ static int platform_timer_init(void)
+ const struct sbi_platform_operations platform_ops = {
+ 	.early_init		= platform_early_init,
+ 	.final_init		= platform_final_init,
+-	.irqchip_init		= platform_irqchip_init,
+ 	.ipi_init		= platform_ipi_init,
+ 	.timer_init		= platform_timer_init
+ };
+ const struct sbi_platform platform = {
+ 	.opensbi_version	= OPENSBI_VERSION,
+ 	.platform_version	= SBI_PLATFORM_VERSION(0x0, 0x00),
+-	.name			= "platform-name",
++	.name			= "custom-platform",
+ 	.features		= SBI_PLATFORM_DEFAULT_FEATURES,
+ 	.hart_count		= 1,
+ 	.hart_stack_size	= SBI_PLATFORM_DEFAULT_HART_STACK_SIZE,
