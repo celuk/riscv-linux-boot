@@ -10,7 +10,7 @@
         //bootargs = "console=ttyS0,115200 earlycon";
         //bootargs = "earlycon=sbi console=hvc0,115200";
         bootargs = "console=hvc0 earlycon=sbi";
-        stdout-path = &custom_uart;
+        stdout-path = &serial0;
     };
 
     cpus {
@@ -52,18 +52,37 @@
         compatible = "simple-bus";
         ranges;
 
-        clint: clint@ff080000 {
-            compatible = "riscv,clint0";
-            reg = <0xff080000 0x10000>; // Base: 0xFF080000, Size: 0xFFFF + 1
-            // Route interrupts to the CPU's interrupt controller (intc)
-            // Line 3 is Machine Software Interrupt (IPI)
-            // Line 7 is Machine Timer Interrupt (MTIMER)
-            interrupts-extended = <&intc 3 &intc 7>;
+        //clint: clint@ff080000 {
+        //    compatible = "riscv,clint0";
+        //    reg = <0xff080000 0x10000>; // Base: 0xFF080000, Size: 0xFFFF + 1
+        //    // Route interrupts to the CPU's interrupt controller (intc)
+        //    // Line 3 is Machine Software Interrupt (IPI)
+        //    // Line 7 is Machine Timer Interrupt (MTIMER)
+        //    interrupts-extended = <&intc 3 &intc 7>;
+        //};
+
+        mswi: mswi@ff080000 {
+            compatible = "riscv,aclint-mswi";
+            interrupts-extended = <&intc 3>;
         };
 
-        custom_uart: custom_uart@ff000000 {
-            compatible = "custom_uart";
-            reg = <0xff000000 0x10000>; // Base: 0xFF000000, Size: 0xFFFF + 1
+        mtimer: mtimer@ff084000 {
+            compatible = "riscv,aclint-mtimer";
+            interrupts-extended = <&intc 7>;
+            clocks = <&soc_clock>;
+        };
+
+        //custom_uart: custom_uart@ff000000 {
+        //    compatible = "custom_uart";
+        //    reg = <0xff000000 0x10000>; // Base: 0xFF000000, Size: 0xFFFF + 1
+        //    clock-frequency = <50000000>;
+        //    current-speed = <921600>;
+        //};
+
+        serial0: serial@ff000000 {
+            compatible = "serial0";
+            reg = <0xff000000 0x10000>;
+            //interrupts = <10>;
             clock-frequency = <50000000>;
             current-speed = <921600>;
         };
@@ -77,5 +96,10 @@
     //hsm {
     //    compatible = "sbi,hsm-noop";
     //};
-};
 
+    soc_clock: clock {
+        compatible = "fixed-clock";
+        #clock-cells = <0>;
+        clock-frequency = <50000000>;
+    };
+};
